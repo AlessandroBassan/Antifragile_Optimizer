@@ -1,7 +1,7 @@
 # Bleeding-Adjusted Barbell Quantitative Framework
 ### Multi-Layer Antifragile Allocation, Active CFO Carry Controller & Anti-Overfitting Validation Suite
 
-![tesi_final_dashboard](tesi_final_dashboard.png)
+![graf_final](graf_final.png)
 
 ---
 
