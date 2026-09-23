@@ -1,12 +1,16 @@
-import numpy as np
+﻿import numpy as np
 import pandas as pd
 from numba import njit
 from scipy.stats import linregress
 
 @njit(fastmath=True)
 def _calc_lzc(binary_seq):
+    """
+    Calcolo Lempel-Ziv Complexity 76 con compilazione JIT.
+    """
     n = len(binary_seq)
-    if n == 0: return 0.0
+    if n <= 1:
+        return 0.0
     c, l_val, i, k = 1, 1, 0, 1
     while l_val + k <= n:
         if binary_seq[i + k - 1] == binary_seq[l_val + k - 1]:
@@ -19,62 +23,118 @@ def _calc_lzc(binary_seq):
     return (c * np.log2(n)) / n
 
 class PhysicsEngine:
-    def __init__(self, window_size=200):
+    """
+    LAYER 2: Econofisica Quantitativa (Hurst DFA, LZC, Shiller Proxy Z-Score).
+    Mappa lo stato frattale e di entropia del mercato.
+    """
+    def __init__(self, window_size=200, trading_hours_per_day=6.5):
         self.window_size = window_size
-        self.h_buffer = [] # Buffer per lo smoothing di Hurst
+        self.trading_hours_per_day = trading_hours_per_day
+        self.h_buffer = []
+
+    def reset(self):
+        """Azzera il buffer di smoothing per evitare data leakage tra backtest."""
+        self.h_buffer.clear()
 
     def get_hurst_dfa(self, returns):
+        """
+        Detrended Fluctuation Analysis (DFA) per l'esponente di Hurst H.
+        Immune da trend locali e derive di breve termine rispetto a R/S.
+        """
+        if len(returns) < 30:
+            return 0.5
+        
         y = np.cumsum(returns - np.mean(returns))
         n = len(y)
-        scales = np.unique(np.logspace(np.log10(10), np.log10(n//4), 15).astype(np.int32))
+        max_scale = max(10, n // 4)
+        scales = np.unique(np.logspace(np.log10(8), np.log10(max_scale), 12).astype(np.int32))
+        scales = scales[scales >= 4]
+        
+        if len(scales) < 3:
+            return 0.5
+            
         fluctuations = np.zeros(len(scales))
         for i, scale in enumerate(scales):
             n_segments = n // scale
+            if n_segments == 0:
+                continue
             rms = 0.0
+            x = np.arange(scale)
             for j in range(n_segments):
-                seg = y[j*scale : (j+1)*scale]
-                x = np.arange(scale)
+                seg = y[j * scale : (j + 1) * scale]
                 coeff = np.polyfit(x, seg, 1)
                 trend = np.polyval(coeff, x)
-                rms += np.sum((seg - trend)**2)
+                rms += np.sum((seg - trend) ** 2)
             fluctuations[i] = np.sqrt(rms / (n_segments * scale))
-        h, _, _, _, _ = linregress(np.log10(scales), np.log10(fluctuations))
-        return h
+            
+        # Filtro valori validi > 0 per la regressione log-log
+        valid = fluctuations > 0
+        if np.sum(valid) < 3:
+            return 0.5
+            
+        h, _, _, _, _ = linregress(np.log10(scales[valid]), np.log10(fluctuations[valid]))
+        # Clamp statistico coerente [0.05, 0.95]
+        return float(np.clip(h, 0.05, 0.95))
 
     def get_complexity(self, returns):
+        """
+        Calcola l'entropia algoritmica di Lempel-Ziv sui rendimenti.
+        """
         binary_seq = (returns > 0).astype(np.int8)
-        return _calc_lzc(binary_seq)
+        return float(_calc_lzc(binary_seq))
 
     def compute_state(self, price_series):
+        """
+        Calcola il vettore di stato fisico completo:
+        - Hurst smoothed
+        - Lempel-Ziv Complexity
+        - Shiller-style Detrended Price Z-Score
+        - Volatilità oraria annualizzata
+        - Regime di mercato
+        """
         prices = price_series.values.flatten()
+        if len(prices) < self.window_size:
+            return None
+            
         returns = np.diff(np.log(prices))
-        if len(prices) < 200: return None
+        recent_returns = returns[-(self.window_size - 1):]
         
-        # Z-Score Shiller
-        ma_200 = np.mean(prices[-200:])
-        std_200 = np.std(prices[-200:])
-        z_score = (prices[-1] - ma_200) / std_200 if std_200 != 0 else 0
+        # 1. Z-Score di Shiller (Prezzo vs Media e Deviazione Standard storica a 200 periodi)
+        ma_200 = np.mean(prices[-self.window_size:])
+        std_200 = np.std(prices[-self.window_size:])
+        z_score = float((prices[-1] - ma_200) / std_200) if std_200 > 0 else 0.0
         
-        # Hurst con Smoothing (Filtro Passa-Basso)
-        recent_returns = returns[-(self.window_size-1):]
+        # 2. Esponente di Hurst via DFA con smoothing
         h_raw = self.get_hurst_dfa(recent_returns)
-        
         self.h_buffer.append(h_raw)
-        if len(self.h_buffer) > 10: self.h_buffer.pop(0) # Media mobile a 10 ore
-        h_smooth = np.mean(self.h_buffer)
+        if len(self.h_buffer) > 10:
+            self.h_buffer.pop(0)
+        h_smooth = float(np.mean(self.h_buffer))
         
+        # 3. Complessità LZC ed Entropia
         lzc = self.get_complexity(recent_returns)
-        vol = np.std(recent_returns) * np.sqrt(252 * 24)
+        
+        # 4. Volatilità Annualizzata con ore effettive di scambio
+        annualization_factor = np.sqrt(252 * self.trading_hours_per_day)
+        vol = float(np.std(recent_returns) * annualization_factor)
         
         return {
-            "hurst": h_smooth, 
-            "lzc": lzc, 
-            "z_score_shiller": z_score, 
+            "hurst": h_smooth,
+            "hurst_raw": h_raw,
+            "lzc": lzc,
+            "z_score_shiller": z_score,
             "volatility": vol,
             "regime": self._classify_regime(h_smooth, lzc, z_score)
         }
 
     def _classify_regime(self, h, lzc, z_score):
-        if abs(z_score) > 2.2: return "SHILLER_EXTREME"
-        if h > 0.65: return "PERSISTENT_TREND" if lzc < 0.40 else "FRAGILE_MOMENTUM"
+        """
+        Classifica lo stato del mercato in quattro regimi fisici.
+        """
+        if abs(z_score) > 2.2:
+            return "SHILLER_EXTREME"
+        if h > 0.60:
+            return "PERSISTENT_TREND" if lzc < 0.45 else "FRAGILE_MOMENTUM"
+        if h < 0.42:
+            return "MEAN_REVERTING"
         return "GAUSSIAN_NOISE"
