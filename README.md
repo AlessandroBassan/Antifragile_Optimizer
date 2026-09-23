@@ -83,12 +83,12 @@ Acts as a multi-dimensional market regime sensor:
 ### Layer 4: Active Structural Overlay / CFO Controller (`core/structural_overlay.py`)
 The operational core of the self-financing Barbell:
 * **Daily Carry Budget**:
-  $$\text{Daily Carry Budget} = \frac{w_{P2} \cdot y_{\text{TNX}}}{365} \quad (w_{P2} = 15\%)$$
+  
 * **Hard Budgeting Scaling Factor**:
-  $$\text{Scaling Factor} = \min\left(1, \; \frac{\text{Daily Carry Budget}}{\Theta_{\text{cost}}}\right)$$
+  
 * **Tripartite Balance**:
-  $$P_1 (\text{Safe Cash}) + P_2 (\text{Bond Carry}) + P_3 (\text{Hyper-Convexity}) = 1.0$$
-* **Turnover Hysteresis**: Rebalancing is aborted if expected alpha does not exceed twice the transaction fees ($\text{Alpha} < 2 \times \text{Fees}$).
+ 
+* **Turnover Hysteresis**: Rebalancing is aborted if expected alpha does not exceed twice the transaction fees.
 
 ---
 
